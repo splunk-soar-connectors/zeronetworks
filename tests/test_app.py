@@ -22,6 +22,7 @@ from src.app import (
     QuarantineParams,
     SearchAssetParams,
     _validated_asset_id,
+    app,
     quarantine_asset,
     search_asset,
     unquarantine_asset,
@@ -76,6 +77,26 @@ class TestTestConnectivity:
         assert run.request.method == "GET"
         assert run.request.url.path.endswith("/assets/statistics")
 
+    def test_rejects_a_base_url_carrying_credentials_without_leaking_them(self, mocker):
+        # Uses the real build_client, unlike the run_action fixture, so the asset
+        # boundary validation actually runs. Nothing should reach the network, and
+        # neither the progress log nor the failure message may echo the secret.
+        progress = mocker.patch("src.app.logger.progress")
+        asset = Asset(
+            base_url="https://svc:hunter2@portal.zeronetworks.com/api/v1",  # pragma: allowlist secret
+            api_token="token",
+        )
+        mocker.patch.object(app, "_asset", asset, create=True)
+        send = mocker.patch("httpx.Client.send")
+
+        assert not connectivity_action()
+
+        send.assert_not_called()
+        message = app.actions_manager.get_action_results()[-1].get_message()
+        assert "must not embed a username or password" in message
+        assert "hunter2" not in message
+        assert not any("hunter2" in str(c) for c in progress.call_args_list)
+
     def test_fails_on_bad_token(self, run_action):
         run = run_action(
             connectivity_action,
@@ -101,6 +122,7 @@ class TestSearchAsset:
         assert run.request.url.path.endswith("/assets/searchId")
         assert run.request.url.params["fqdn"] == "server.domain.local"
         assert run.data == [{"asset_id": ASSET_ID, "fqdn": "server.domain.local"}]
+        assert run.summary == {"fqdn": "server.domain.local", "asset_id": ASSET_ID}
 
     def test_trims_surrounding_whitespace(self, run_action):
         run = run_action(
@@ -135,6 +157,7 @@ class TestQuarantine:
         assert run.request.url.path == f"/api/v1/assets/{ASSET_ID}/actions/quarantine"
         assert json.loads(run.request.content) == {"quarantine": True}
         assert run.data == [{"asset_id": ASSET_ID, "quarantined": True}]
+        assert run.summary == {"asset_id": ASSET_ID, "quarantined": True}
 
     def test_rejects_bad_asset_id_without_calling_api(self, run_action):
         run = run_action(
@@ -167,6 +190,7 @@ class TestUnquarantine:
         assert run.request.url.path == f"/api/v1/assets/{ASSET_ID}/actions/quarantine"
         assert json.loads(run.request.content) == {"quarantine": False}
         assert run.data == [{"asset_id": ASSET_ID, "quarantined": False}]
+        assert run.summary == {"asset_id": ASSET_ID, "quarantined": False}
 
     def test_rejects_bad_asset_id_without_calling_api(self, run_action):
         run = run_action(

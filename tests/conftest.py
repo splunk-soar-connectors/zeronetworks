@@ -50,6 +50,10 @@ class ActionRun:
     def data(self) -> list[dict]:
         return self.result.get_data()
 
+    @property
+    def summary(self) -> dict:
+        return self.result.get_summary()
+
 
 @pytest.fixture
 def run_action(mocker, asset: Asset) -> Callable[..., ActionRun]:

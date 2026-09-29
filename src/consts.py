@@ -29,4 +29,8 @@ ASSET_ID_PATTERN = r"^a:[a-zA-Z]:[a-zA-Z0-9]{8}$"
 # CEF contains-type used to chain the asset ID between actions in the SOAR UI.
 CEF_ZN_ASSET_ID = "zeronetworks asset id"
 
+# Schemes accepted for the asset's base URL. http is allowed because the Zero
+# Networks OpenAPI spec lists a localhost development server.
+ALLOWED_URL_SCHEMES = frozenset({"http", "https"})
+
 DEFAULT_TIMEOUT_SECONDS = 30

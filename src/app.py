@@ -106,11 +106,11 @@ def _set_quarantine(asset: Asset, asset_id: str, quarantine: bool) -> None:
 @app.test_connectivity()
 def test_connectivity(asset: Asset) -> None:
     """Verify that the configured token can reach and authenticate to Zero Networks."""
-    logger.progress(f"Connecting to {asset.base_url}")
-
     with build_client(
         asset.base_url, asset.api_token, asset.verify_server_cert
     ) as client:
+        # client.base_url has been through normalize_base_url, so it is safe to log.
+        logger.progress(f"Connecting to {client.base_url}")
         request_json(client, "GET", CONNECTIVITY_ENDPOINT, context="Connectivity test")
 
     logger.progress("Connectivity test passed")
@@ -137,16 +137,22 @@ class SearchAssetOutput(ActionOutput):
     )
 
 
+class SearchAssetSummary(ActionOutput):
+    fqdn: str
+    asset_id: str
+
+
 @app.action(
     name="search asset",
     action_type="investigate",
     read_only=True,
     render_as="table",
+    summary_type=SearchAssetSummary,
     verbose="Looks up a Zero Networks asset ID by fully qualified domain name. "
     "The returned asset ID is the input for the quarantine and unquarantine actions.",
 )
 def search_asset(
-    params: SearchAssetParams, asset: Asset, soar: SOARClient
+    params: SearchAssetParams, asset: Asset, soar: SOARClient[SearchAssetSummary]
 ) -> SearchAssetOutput:
     """Search for a Zero Networks asset by FQDN."""
     fqdn = params.fqdn.strip()
@@ -170,6 +176,7 @@ def search_asset(
         raise ActionFailure(f"No Zero Networks asset found with FQDN '{fqdn}'.")
 
     soar.set_message(f"Found asset {asset_id} for {fqdn}")
+    soar.set_summary(SearchAssetSummary(fqdn=fqdn, asset_id=asset_id))
     return SearchAssetOutput(asset_id=asset_id, fqdn=fqdn)
 
 
@@ -193,16 +200,22 @@ class QuarantineOutput(ActionOutput):
     )
 
 
+class QuarantineSummary(ActionOutput):
+    asset_id: str
+    quarantined: bool
+
+
 @app.action(
     name="quarantine asset",
     action_type="contain",
     read_only=False,
     render_as="table",
+    summary_type=QuarantineSummary,
     verbose="Quarantines a Zero Networks asset, cutting off its network access. "
     "Use the 'unquarantine asset' action to release it again.",
 )
 def quarantine_asset(
-    params: QuarantineParams, asset: Asset, soar: SOARClient
+    params: QuarantineParams, asset: Asset, soar: SOARClient[QuarantineSummary]
 ) -> QuarantineOutput:
     """Quarantine a Zero Networks asset."""
     asset_id = _validated_asset_id(params.asset_id)
@@ -210,6 +223,7 @@ def quarantine_asset(
     _set_quarantine(asset, asset_id, quarantine=True)
 
     soar.set_message(f"Quarantined asset {asset_id}")
+    soar.set_summary(QuarantineSummary(asset_id=asset_id, quarantined=True))
     return QuarantineOutput(asset_id=asset_id, quarantined=True)
 
 
@@ -218,10 +232,11 @@ def quarantine_asset(
     action_type="correct",
     read_only=False,
     render_as="table",
+    summary_type=QuarantineSummary,
     verbose="Releases a Zero Networks asset from quarantine, restoring its network access.",
 )
 def unquarantine_asset(
-    params: QuarantineParams, asset: Asset, soar: SOARClient
+    params: QuarantineParams, asset: Asset, soar: SOARClient[QuarantineSummary]
 ) -> QuarantineOutput:
     """Release a Zero Networks asset from quarantine."""
     asset_id = _validated_asset_id(params.asset_id)
@@ -229,6 +244,7 @@ def unquarantine_asset(
     _set_quarantine(asset, asset_id, quarantine=False)
 
     soar.set_message(f"Released asset {asset_id} from quarantine")
+    soar.set_summary(QuarantineSummary(asset_id=asset_id, quarantined=False))
     return QuarantineOutput(asset_id=asset_id, quarantined=False)
 
 

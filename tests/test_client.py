@@ -13,9 +13,93 @@
 # limitations under the License.
 import httpx
 import pytest
-from soar_sdk.exceptions import ActionFailure
+from soar_sdk.exceptions import ActionFailure, AssetMisconfiguration
 
-from src.client import build_client, raise_for_status, request_json
+from src.client import build_client, normalize_base_url, raise_for_status, request_json
+
+
+class TestNormalizeBaseUrl:
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            # Production, development and on-prem/proxy deployments.
+            (
+                "https://portal.zeronetworks.com/api/v1",
+                "https://portal.zeronetworks.com/api/v1",
+            ),
+            (
+                "https://portal-dev.zeronetworks.com/api/v1",
+                "https://portal-dev.zeronetworks.com/api/v1",
+            ),
+            ("http://localhost:4000/api/v1", "http://localhost:4000/api/v1"),
+            (
+                "https://zn-proxy.internal.example:8443/api/v1",
+                "https://zn-proxy.internal.example:8443/api/v1",
+            ),
+            # Normalization: trailing slashes, surrounding space, scheme/host case.
+            (
+                "https://portal.zeronetworks.com/api/v1/",
+                "https://portal.zeronetworks.com/api/v1",
+            ),
+            (
+                "  https://portal.zeronetworks.com/api/v1  ",
+                "https://portal.zeronetworks.com/api/v1",
+            ),
+            (
+                "HTTPS://Portal.ZeroNetworks.com/api/v1",
+                "https://portal.zeronetworks.com/api/v1",
+            ),
+            ("https://portal.zeronetworks.com", "https://portal.zeronetworks.com"),
+        ],
+    )
+    def test_accepts_and_normalizes_valid_urls(self, raw, expected):
+        assert normalize_base_url(raw) == expected
+
+    @pytest.mark.parametrize(
+        ("raw", "because"),
+        [
+            ("", "must not be empty"),
+            ("   ", "must not be empty"),
+            ("portal.zeronetworks.com/api/v1", "must use one of"),  # no scheme
+            ("ftp://portal.zeronetworks.com", "must use one of"),
+            ("file:///etc/passwd", "must use one of"),
+            ("javascript:alert(1)", "must use one of"),
+            ("https:///api/v1", "must include a host"),
+            (
+                "https://portal.zeronetworks.com/api/v1?token=abc",
+                "query string or fragment",
+            ),
+            ("https://portal.zeronetworks.com/api/v1#frag", "query string or fragment"),
+            (
+                "https://portal.zeronetworks.com/api\nv1",
+                "whitespace or control characters",
+            ),
+            (
+                "https://portal.zeronetworks.com/api\tv1",
+                "whitespace or control characters",
+            ),
+            ("https://portal.zeronetworks.com:notaport/api", "invalid port"),
+        ],
+    )
+    def test_rejects_invalid_urls(self, raw, because):
+        with pytest.raises(AssetMisconfiguration, match=because):
+            normalize_base_url(raw)
+
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            "https://user:hunter2@portal.zeronetworks.com/api/v1",  # pragma: allowlist secret
+            "https://apitoken@portal.zeronetworks.com/api/v1",  # pragma: allowlist secret
+        ],
+    )
+    def test_rejects_urls_carrying_credentials(self, raw):
+        # Rejected rather than stripped: userinfo is always a misconfiguration here,
+        # and rejecting keeps the secret out of any message we go on to build.
+        with pytest.raises(AssetMisconfiguration) as err:
+            normalize_base_url(raw)
+        assert "must not embed a username or password" in str(err.value)
+        assert "hunter2" not in str(err.value)
+        assert "apitoken" not in str(err.value)
 
 
 class TestBuildClient:
@@ -106,9 +190,48 @@ class TestRequestJson:
             == {}
         )
 
-    def test_normalizes_a_non_object_body_to_an_empty_dict(self):
-        client = self._client(lambda _r: httpx.Response(200, json=[1, 2, 3]))
-        assert request_json(client, "GET", "/whatever", "Something") == {}
+    def test_treats_a_whitespace_only_body_as_empty(self):
+        client = self._client(lambda _r: httpx.Response(200, text="  \n "))
+        assert (
+            request_json(client, "PUT", "/assets/x/actions/quarantine", "Quarantine")
+            == {}
+        )
+
+    @pytest.mark.parametrize(
+        ("raw_body", "described_as"),
+        [
+            ("[1, 2, 3]", "list"),
+            ('"just a string"', "str"),
+            ("42", "int"),
+            ("null", "NoneType"),
+        ],
+    )
+    def test_rejects_a_non_object_body(self, raw_body, described_as):
+        # Silently returning {} here would make 'search asset' report a confident
+        # "no asset found" for a response it could not actually read.
+        client = self._client(
+            lambda _r: httpx.Response(
+                200, text=raw_body, headers={"Content-Type": "application/json"}
+            )
+        )
+        with pytest.raises(ActionFailure) as err:
+            request_json(client, "GET", "/assets/searchId", "Asset search")
+        assert f"JSON {described_as} where an object was expected" in str(err.value)
+        assert "Asset search" in str(err.value)
+
+    def test_rejects_a_body_that_is_not_valid_json(self):
+        client = self._client(lambda _r: httpx.Response(200, text="<html>hello</html>"))
+        with pytest.raises(ActionFailure) as err:
+            request_json(client, "GET", "/assets/searchId", "Asset search")
+        assert "not valid JSON" in str(err.value)
+        assert "<html>hello</html>" in str(err.value)
+
+    def test_truncates_a_long_unexpected_body(self):
+        client = self._client(lambda _r: httpx.Response(200, text="x" * 5000))
+        with pytest.raises(ActionFailure) as err:
+            request_json(client, "GET", "/assets/searchId", "Asset search")
+        assert len(str(err.value)) < 500
+        assert "..." in str(err.value)
 
     def test_converts_a_timeout_into_an_action_failure(self):
         def handler(request: httpx.Request) -> httpx.Response:

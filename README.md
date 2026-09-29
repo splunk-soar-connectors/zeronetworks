@@ -114,6 +114,8 @@ action_result.message | string | | |
 action_result.parameter.fqdn | string | `host name` | |
 action_result.data.\*.asset_id | string | `zeronetworks asset id` | a:a:JF2xro6g |
 action_result.data.\*.fqdn | string | `host name` | server.domain.local |
+action_result.summary.fqdn | string | | |
+action_result.summary.asset_id | string | | |
 summary.total_objects | numeric | | 1 |
 summary.total_objects_successful | numeric | | 1 |
 
@@ -141,6 +143,8 @@ action_result.message | string | | |
 action_result.parameter.asset_id | string | `zeronetworks asset id` | |
 action_result.data.\*.asset_id | string | `zeronetworks asset id` | a:a:JF2xro6g |
 action_result.data.\*.quarantined | boolean | | True False |
+action_result.summary.asset_id | string | | |
+action_result.summary.quarantined | boolean | | True False |
 summary.total_objects | numeric | | 1 |
 summary.total_objects_successful | numeric | | 1 |
 
@@ -168,6 +172,8 @@ action_result.message | string | | |
 action_result.parameter.asset_id | string | `zeronetworks asset id` | |
 action_result.data.\*.asset_id | string | `zeronetworks asset id` | a:a:JF2xro6g |
 action_result.data.\*.quarantined | boolean | | True False |
+action_result.summary.asset_id | string | | |
+action_result.summary.quarantined | boolean | | True False |
 summary.total_objects | numeric | | 1 |
 summary.total_objects_successful | numeric | | 1 |
 
