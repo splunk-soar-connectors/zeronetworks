@@ -1,6 +1,6 @@
 [project]
 name = "zeronetworks"
-version = "1.0.0"
+version = "1.0.1"
 description = "Segment, quarantine and release assets managed by Zero Networks"
 license = "Copyright (c) 2026 Splunk Inc."
 requires-python = ">=3.13, <3.15"

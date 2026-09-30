@@ -1,7 +1,7 @@
 # Zero Networks for Splunk SOAR
 
 Publisher: Splunk Inc. <br>
-Connector Version: 1.0.0 <br>
+Connector Version: 1.0.1 <br>
 Product Vendor: Zero Networks <br>
 Product Name: Zero Networks Segment <br>
 Minimum Product Version: 7.0.0
